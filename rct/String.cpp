@@ -1,9 +1,15 @@
 #include "String.h"
+#ifdef RCT_HAVE_ZLIB
 #include <zlib.h>
-
 enum { BufferSize = 1024 * 32 };
+#endif
+
 String String::compress() const
 {
+#ifndef RCT_HAVE_ZLIB
+    assert(0 && "Rct configured without zlib support");
+    return String();
+#else
     if (isEmpty())
         return String();
     z_stream stream;
@@ -38,11 +44,18 @@ String String::compress() const
     deflateEnd(&stream);
 
     return out;
+#endif
 }
 
-String String::uncompress() const
+String String::uncompress(const char *data, int size)
 {
-    if (isEmpty())
+#ifndef RCT_HAVE_ZLIB
+    (void)data;
+    (void)size;
+    assert(0 && "Rct configured without zlib support");
+    return String();
+#else
+    if (!size)
         return String();
     z_stream stream;
     memset(&stream, 0, sizeof(stream));
@@ -51,13 +64,13 @@ String String::uncompress() const
         return String();
     }
 
-    stream.next_in = const_cast<Bytef*>(reinterpret_cast<const Bytef *>(data()));
-    stream.avail_in = size();
+    stream.next_in = const_cast<Bytef*>(reinterpret_cast<const Bytef *>(data));
+    stream.avail_in = size;
 
     char buffer[BufferSize];
 
     String out;
-    out.reserve(size() * 2);
+    out.reserve(size * 2);
 
     int error = 0;
     do {
@@ -77,4 +90,66 @@ String String::uncompress() const
 
     inflateEnd(&stream);
     return out;
+#endif
+}
+
+String String::toHex(const void *pAddressIn, int lSize)
+{
+    String ret;
+    char szBuf[100];
+    int lIndent = 1;
+    int lOutLen, lIndex, lIndex2, lOutLen2;
+    int lRelPos;
+    struct {
+        char *pData;
+        unsigned int lSize;
+    } buf;
+    unsigned char *pTmp, ucTmp;
+    unsigned char *pAddress = (unsigned char *)pAddressIn;
+
+    buf.pData = (char *)pAddress;
+    buf.lSize = lSize;
+
+    while (buf.lSize > 0) {
+        pTmp = (unsigned char *)buf.pData;
+        lOutLen = (int)buf.lSize;
+        if (lOutLen > 16)
+            lOutLen = 16;
+
+        // create a 64-character formatted output line:
+        snprintf(szBuf,
+                 sizeof(szBuf),
+                 " >                            "
+                 "                      "
+                 "    %08lX",
+                 static_cast<long unsigned int>(pTmp - pAddress));
+        lOutLen2 = lOutLen;
+
+        for (lIndex = 1 + lIndent, lIndex2 = 53 - 15 + lIndent, lRelPos = 0; lOutLen2; lOutLen2--, lIndex += 2, lIndex2++) {
+            ucTmp = *pTmp++;
+
+            sprintf(szBuf + lIndex, "%02X ", (unsigned short)ucTmp);
+            if (!isprint(ucTmp))
+                ucTmp = '.'; // nonprintable char
+            szBuf[lIndex2] = ucTmp;
+
+            if (!(++lRelPos & 3)) // extra blank after 4 bytes
+            {
+                lIndex++;
+                szBuf[lIndex + 2] = ' ';
+            }
+        }
+
+        if (!(lRelPos & 3))
+            lIndex--;
+
+        szBuf[lIndex] = '<';
+        szBuf[lIndex + 1] = ' ';
+
+        ret.append(szBuf);
+
+        buf.pData += lOutLen;
+        buf.lSize -= lOutLen;
+    }
+    return ret;
 }

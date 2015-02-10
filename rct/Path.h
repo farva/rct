@@ -67,6 +67,7 @@ public:
     static const char *typeName(Type type);
     bool isSymLink() const;
     Path followLink(bool *ok = 0) const;
+    String name() const;
     const char *fileName(int *len = 0) const;
     const char *extension(int *len = 0) const;
     static bool exists(const Path &path) { return path.exists(); }
@@ -111,6 +112,8 @@ public:
     Path canonicalized() const;
     static Path canonicalized(const Path &path);
     time_t lastModified() const; // returns time_t ... no shit
+    time_t lastAccess() const;
+    bool setLastModified(time_t lastModified) const;
     uint64_t lastModifiedMs() const;
 
     int64_t fileSize() const;
@@ -144,7 +147,7 @@ public:
         Recurse
     };
     typedef VisitResult (*VisitCallback)(const Path &path, void *userData);
-    void visit(VisitCallback callback, void *userData) const;
+    void visit(VisitCallback callback, void *userData = 0) const;
 
     List<Path> files(unsigned filter = All, int max = -1, bool recurse = false) const;
 };

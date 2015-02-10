@@ -1,6 +1,7 @@
 #include "SocketClient.h"
 #include "Rct.h"
 #include "EventLoop.h"
+#include "Log.h"
 #include <assert.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -27,7 +28,7 @@ SocketClient::SocketClient(unsigned int mode)
 }
 
 SocketClient::SocketClient(int f, unsigned int mode)
-    : fd(f), socketPort(0), socketState(Connected), socketMode(mode), writeWait(false)
+    : fd(f), socketPort(0), socketState(Connected), socketMode(mode), wMode(Asynchronous), writeWait(false)
 {
     assert(fd >= 0);
 #ifdef HAVE_NOSIGPIPE
@@ -500,9 +501,9 @@ bool SocketClient::writeTo(const String& host, uint16_t port, const unsigned cha
     return true;
 }
 
-bool SocketClient::write(const unsigned char* data, unsigned int size)
+bool SocketClient::write(const void *data, unsigned int size)
 {
-    return writeTo(String(), 0, data, size);
+    return writeTo(String(), 0, reinterpret_cast<const unsigned char*>(data), size);
 }
 
 static String addrToString(const sockaddr* addr, bool IPv6)

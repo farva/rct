@@ -3,6 +3,7 @@
 
 #include <unordered_map>
 #include <rct/List.h>
+#include <memory>
 #include "rct-config.h"
 
 template <typename Key, typename Value>
@@ -37,13 +38,27 @@ public:
         return !std::unordered_map<Key, Value>::size();
     }
 
-    Value value(const Key &key, const Value &defaultValue = Value()) const
+    Value value(const Key &key, const Value &defaultValue = Value(), bool *ok = 0) const
     {
         typename std::unordered_map<Key, Value>::const_iterator it = std::unordered_map<Key, Value>::find(key);
         if (it == std::unordered_map<Key, Value>::end()) {
+            if (ok)
+                *ok = false;
             return defaultValue;
         }
+        if (ok)
+            *ok = true;
         return it->second;
+    }
+
+    void deleteAll()
+    {
+        typename std::unordered_map<Key, Value>::iterator it = std::unordered_map<Key, Value>::begin();
+        while (it != std::unordered_map<Key, Value>::end()) {
+            delete it->second;
+            ++it;
+        }
+        std::unordered_map<Key, Value>::clear();
     }
 
     Value take(const Key &key, bool *ok = 0)
@@ -72,14 +87,26 @@ public:
         return false;
     }
 
-    // bool insert(const Key &key, const Value &value)
-    // {
-    //     typedef typename std::unordered_map<Key, Value>::iterator Iterator;
-    //     typedef std::pair<Iterator, bool> Tuple;
-    //     Tuple tup = std::unordered_map<Key, Value>::insert(key, value);
-    //     return std::unordered_map<Key, Value>::insert(key, value).second;
-    //     // return tup->second;
-    // }
+
+    int remove(std::function<bool(const Key &key)> match)
+    {
+        int ret = 0;
+        typename std::unordered_map<Key, Value>::iterator it = std::unordered_map<Key, Value>::begin();
+        while (it != std::unordered_map<Key, Value>::end()) {
+            if (match(it->first)) {
+                std::unordered_map<Key, Value>::erase(it++);
+                ++ret;
+            } else {
+                ++it;
+            }
+        }
+        return ret;
+    }
+
+    bool insert(const Key &key, const Value &value)
+    {
+        return std::unordered_map<Key, Value>::insert(std::make_pair(key, value)).second;
+    }
 
     Value &operator[](const Key &key)
     {
@@ -92,15 +119,22 @@ public:
         return std::unordered_map<Key, Value>::find(key)->second;
     }
 
-    Hash<Key, Value> &unite(const Hash<Key, Value> &other)
+    Hash<Key, Value> &unite(const Hash<Key, Value> &other, int *count = 0)
     {
         typename std::unordered_map<Key, Value>::const_iterator it = other.begin();
-        while (it != other.end()) {
+        const auto end = other.end();
+        while (it != end) {
             const Key &key = it->first;
             const Value &val = it->second;
-            std::unordered_map<Key, Value>::operator[](key) = val;
-            // std::unordered_map<Key, Value>::insert(it);
-            // std::unordered_map<Key, Value>::operator[](it->first) = it->second;
+            if (count) {
+                auto cur = find(key);
+                if (cur == end || cur->second != val) {
+                    ++*count;
+                    std::unordered_map<Key, Value>::operator[](key) = val;
+                }
+            } else {
+                std::unordered_map<Key, Value>::operator[](key) = val;
+            }
             ++it;
         }
         return *this;

@@ -100,16 +100,21 @@ void ProcessThread::run()
                 int ret;
                 pid_t p;
                 std::unique_lock<std::mutex> lock(sProcessMutex);
-                std::map<pid_t, ProcessData>::iterator proc = sProcesses.begin();
-                const std::map<pid_t, ProcessData>::const_iterator end = sProcesses.end();
-                while (proc != end) {
+                bool done = false;
+                do {
                     //printf("testing pid %d\n", proc->first);
-                    p = ::waitpid(proc->first, &ret, WNOHANG);
+                    eintrwrap(p, ::waitpid(0, &ret, WNOHANG));
                     switch(p) {
                     case 0:
+                        // we're done
+                        done = true;
+                        break;
                     case -1:
-                        //printf("this is not the pid I'm looking for\n");
-                        ++proc;
+                        done = true;
+                        if (errno == ECHILD)
+                            break;
+                        // this is bad
+                        error() << "waitpid error" << errno;
                         break;
                     default:
                         //printf("successfully waited for pid (got %d)\n", p);
@@ -118,18 +123,23 @@ void ProcessThread::run()
                         } else {
                             ret = Process::ReturnCrashed;
                         }
-                        Process *process = proc->second.proc;
-                        EventLoop::SharedPtr loop = proc->second.loop.lock();
-                        sProcesses.erase(proc++);
-                        lock.unlock();
-                        if (loop) {
-                            loop->callLater([process, ret]() { process->finish(ret); });
+                        auto proc = sProcesses.find(p);
+                        if (proc != sProcesses.end()) {
+                            Process *process = proc->second.proc;
+                            EventLoop::SharedPtr loop = proc->second.loop.lock();
+                            sProcesses.erase(proc++);
+                            lock.unlock();
+                            if (loop) {
+                                loop->callLater([process, ret]() { process->finish(ret); });
+                            } else {
+                                process->finish(ret);
+                            }
+                            lock.lock();
                         } else {
-                            process->finish(ret);
+                            error() << "couldn't find process for pid" << p;
                         }
-                        lock.lock();
                     }
-                }
+                } while (!done);
             }
         }
     }
@@ -207,16 +217,18 @@ Process::~Process()
         eintrwrap(w, ::close(mSync[1]));
 }
 
-void Process::setCwd(const Path& cwd)
+void Process::setCwd(const Path &cwd)
 {
+    assert(mReturn == ReturnUnset);
     mCwd = cwd;
 }
 
-Path Process::findCommand(const String& command)
+Path Process::findCommand(const String &command)
 {
     if (command.isEmpty() || command.at(0) == '/')
         return command;
 
+#warning this should use PATH from environ, if set
     const char* path = getenv("PATH");
     if (!path)
         return Path();
@@ -230,7 +242,7 @@ Path Process::findCommand(const String& command)
     return Path();
 }
 
-Process::ExecState Process::startInternal(const Path& command, const List<String>& a, const List<String>& environ,
+Process::ExecState Process::startInternal(const Path &command, const List<String> &a, const List<String> &environ,
                                           int timeout, unsigned execFlags)
 {
     mErrorString.clear();
@@ -323,14 +335,20 @@ Process::ExecState Process::startInternal(const Path& command, const List<String
         eintrwrap(err, ::dup2(mStdErr[1], STDERR_FILENO));
         eintrwrap(err, ::close(mStdErr[1]));
 
-        if (!mCwd.isEmpty())
-            eintrwrap(err, ::chdir(mCwd.nullTerminated()));
         int ret;
-        if (hasEnviron)
+        if (!mChRoot.isEmpty() && ::chroot(mChRoot.constData())) {
+            goto error;
+        }
+        if (!mCwd.isEmpty() && ::chdir(mCwd.constData())) {
+            goto error;
+        }
+        if (hasEnviron) {
             ret = ::execve(cmd.nullTerminated(), const_cast<char* const*>(args), const_cast<char* const*>(env));
-        else
+        } else {
             ret = ::execv(cmd.nullTerminated(), const_cast<char* const*>(args));
+        }
         // notify the parent process
+  error:
         const char c = 'c';
         eintrwrap(err, ::write(closePipe[1], &c, 1));
         eintrwrap(err, ::close(closePipe[1]));
@@ -471,26 +489,26 @@ Process::ExecState Process::startInternal(const Path& command, const List<String
     return Done;
 }
 
-bool Process::start(const Path& command, const List<String>& a, const List<String>& environ)
+bool Process::start(const Path &command, const List<String> &a, const List<String> &environ)
 {
     mMode = Async;
     return startInternal(command, a, environ) == Done;
 }
 
-Process::ExecState Process::exec(const Path& command, const List<String>& arguments, int timeout, unsigned flags)
+Process::ExecState Process::exec(const Path &command, const List<String> &arguments, int timeout, unsigned flags)
 {
     mMode = Sync;
     return startInternal(command, arguments, List<String>(), timeout, flags);
 }
 
-Process::ExecState Process::exec(const Path& command, const List<String>& a, const List<String>& environ,
+Process::ExecState Process::exec(const Path &command, const List<String> &a, const List<String> &environ,
                                  int timeout, unsigned flags)
 {
     mMode = Sync;
     return startInternal(command, a, environ, timeout, flags);
 }
 
-void Process::write(const String& data)
+void Process::write(const String &data)
 {
     if (!data.isEmpty() && mStdIn[1] != -1) {
         mStdInBuffer.push_back(data);
@@ -612,7 +630,7 @@ void Process::handleInput(int fd)
 
         //printf("Process::handleInput in loop\n");
         int w, want;
-        const String& front = mStdInBuffer.front();
+        const String &front = mStdInBuffer.front();
         if (mStdInIndex) {
             want = front.size() - mStdInIndex;
             eintrwrap(w, ::write(fd, front.mid(mStdInIndex).constData(), want));
@@ -638,7 +656,7 @@ void Process::handleInput(int fd)
     }
 }
 
-void Process::handleOutput(int fd, String& buffer, int& index, Signal<std::function<void(Process*)> >& signal)
+void Process::handleOutput(int fd, String &buffer, int &index, Signal<std::function<void(Process*)> > &signal)
 {
     //printf("Process::handleOutput %d\n", fd);
     enum { BufSize = 1024, MaxSize = (1024 * 1024 * 16) };
@@ -685,7 +703,7 @@ void Process::handleOutput(int fd, String& buffer, int& index, Signal<std::funct
 
 void Process::kill(int sig)
 {
-    if (mReturn != ReturnUnset)
+    if (mReturn != ReturnUnset || mPid == -1)
         return;
 
     mReturn = ReturnKilled;
@@ -706,4 +724,10 @@ List<String> Process::environment()
         ++cur;
     }
     return env;
+}
+
+void Process::setChRoot(const Path &path)
+{
+    assert(mReturn == ReturnUnset);
+    mChRoot = path;
 }

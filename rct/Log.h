@@ -75,9 +75,12 @@ public:
 #ifdef OS_Darwin
     Log operator<<(long number) { return addStringStream(number); }
     Log operator<<(size_t number) { return addStringStream(number); }
-#endif
+#elif (ULONG_MAX) != (UINT_MAX)
     Log operator<<(uint64_t number) { return addStringStream(number); }
     Log operator<<(int64_t number) { return addStringStream(number); }
+#endif
+    Log operator<<(long long unsigned number) { return addStringStream(number); }
+    Log operator<<(long long number) { return addStringStream(number); }
     Log operator<<(uint32_t number) { return addStringStream(number); }
     Log operator<<(int32_t number) { return addStringStream(number); }
     Log operator<<(uint16_t number) { return addStringStream(number); }
@@ -139,6 +142,16 @@ public:
     bool spacing() const
     {
         return mData && mData->spacing;
+    }
+    template <typename T>
+    static String toString(const T &t)
+    {
+        String ret;
+        {
+            Log l(&ret);
+            l << t;
+        }
+        return ret;
     }
 private:
     template <typename T> Log addStringStream(T t)
@@ -327,7 +340,9 @@ inline Log operator<<(Log stream, const String &byteArray)
 template <typename T>
 String &operator<<(String &str, const T &t)
 {
-    Log(&str) << t;
+    Log l(&str);
+    l.setSpacing(false);
+    l << t;
     return str;
 }
 

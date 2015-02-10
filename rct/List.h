@@ -62,6 +62,11 @@ public:
             Base::push_back(t.at(i));
     }
 
+    void sort()
+    {
+        std::sort(Base::begin(), Base::end());
+    }
+
     int indexOf(const T &t) const
     {
         const typename Base::const_iterator beg = Base::begin();
@@ -100,6 +105,11 @@ public:
     void removeAt(int idx)
     {
         Base::erase(Base::begin() + idx);
+    }
+
+    void remove(int idx, int count)
+    {
+        Base::erase(Base::begin() + idx, Base::begin() + idx + count);
     }
 
     void removeLast()
@@ -193,6 +203,20 @@ public:
     const T &last() const
     {
         return Base::at(size() - 1);
+    }
+
+    List<T> mid(int from, int size = -1) const
+    {
+        assert(from >= 0);
+        const int count = Base::size();
+        if (from >= count)
+            return List<T>();
+        if (size < 0) {
+            size = count - from;
+        } else {
+            size = std::min(count - from, size);
+        }
+        return List<T>(Base::begin() + from, Base::begin() + from + size);
     }
 
     bool startsWith(const List<T> &t) const

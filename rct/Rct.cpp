@@ -28,17 +28,19 @@
 
 namespace Rct {
 
-bool readFile(const Path& path, String& data)
+bool readFile(const Path& path, String& data, mode_t *perm)
 {
+    if (!path.isFile())
+        return false;
     FILE *f = fopen(path.nullTerminated(), "r");
     if (!f)
         return false;
-    const bool ret = readFile(f, data);
+    const bool ret = readFile(f, data, perm);
     fclose(f);
     return ret;
 }
 
-bool readFile(FILE *f, String& data)
+bool readFile(FILE *f, String& data, mode_t *perm)
 {
     assert(f);
     const int sz = fileSize(f);
@@ -47,10 +49,19 @@ bool readFile(FILE *f, String& data)
         return true;
     }
     data.resize(sz);
-    return fread(data.data(), sz, 1, f);
+    if (!fread(data.data(), sz, 1, f))
+        return false;
+    if (perm) {
+        struct stat st;
+        if (fstat(fileno(f), &st))
+            return false;
+        *perm = st.st_mode;
+    }
+
+    return true;
 }
 
-bool writeFile(const Path& path, const String& data)
+bool writeFile(const Path& path, const String& data, int perm)
 {
     FILE* f = fopen(path.nullTerminated(), "w");
     if (!f) {
@@ -69,6 +80,9 @@ bool writeFile(const Path& path, const String& data)
         unlink(path.nullTerminated());
         return false;
     }
+    if (perm >= 0)
+        chmod(path.constData(), static_cast<mode_t>(perm));
+
     return true;
 }
 
@@ -373,6 +387,55 @@ String hostName()
     ::gethostname(host.data(), HOST_NAME_MAX);
     host.resize(strlen(host.constData()));
     return host;
+}
+
+const char *colors[] = {
+    "\x1b[0m", // Default
+    "\x1b[30m", // Black
+    "\x1b[31m", // Red
+    "\x1b[32m", // Green
+    "\x1b[33m", // Yellow
+    "\x1b[34m", // Blue
+    "\x1b[35m", // Magenta
+    "\x1b[36m", // Cyan
+    "\x1b[37m", // White
+    "\x1b[0;1m", // BrightDefault
+    "\x1b[30;1m", // BrightBlack
+    "\x1b[31;1m", // BrightRed
+    "\x1b[32;1m", // BrightGreen
+    "\x1b[33;1m", // BrightYellow
+    "\x1b[34;1m", // BrightBlue
+    "\x1b[35;1m", // BrightMagenta
+    "\x1b[36;1m", // BrightCyan
+    "\x1b[37;1m" // BrightWhite
+};
+
+String colorize(const String &string, AnsiColor color, int from, int len)
+{
+    assert(from <= string.size());
+    assert(from >= 0);
+    if (len == -1) {
+        len = string.size() - from;
+    }
+    assert(from + len <= string.size());
+    if (!len)
+        return string;
+
+    String ret;
+    ret.reserve(string.size() + 20);
+    const char *str = string.constData();
+    if (from > 0) {
+        ret.append(str, from);
+        str += from;
+    }
+    ret.append(colors[color]);
+    ret.append(str, len);
+    str += len;
+    ret.append(colors[AnsiColor_Default]);
+    if (from + len != string.size())
+        ret.append(str, string.size() - from - len);
+
+    return ret;
 }
 
 String addrLookup(const String& addr, LookupMode mode, bool *ok)

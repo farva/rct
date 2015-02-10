@@ -368,7 +368,8 @@ public:
     }
 
     String compress() const;
-    String uncompress() const;
+    String uncompress() const { return uncompress(constData(), size()); }
+    static String uncompress(const char *data, int size);
 
     void append(const char *str, int len = -1)
     {
@@ -546,7 +547,11 @@ public:
         return mString;
     }
 
-    List<String> split(char ch) const
+    enum SplitFlag {
+        NoSplitFlag = 0x0,
+        SkipEmpty = 0x1
+    };
+    List<String> split(char ch, unsigned int flags = NoSplitFlag) const
     {
         List<String> ret;
         int last = 0;
@@ -554,10 +559,29 @@ public:
             const int next = indexOf(ch, last);
             if (next == -1)
                 break;
-            ret.append(mid(last, next - last));
+            if (last != next - last || !(flags & SkipEmpty))
+                ret.append(mid(last, next - last));
             last = next + 1;
         }
-        ret.append(mid(last));
+        if (last < size() || !(flags & SkipEmpty))
+            ret.append(mid(last));
+        return ret;
+    }
+
+    List<String> split(const String &split, unsigned int flags = NoSplitFlag) const
+    {
+        List<String> ret;
+        int last = 0;
+        while (1) {
+            const int next = indexOf(split, last);
+            if (next == -1)
+                break;
+            if (last != next - last || !(flags & SkipEmpty))
+                ret.append(mid(last, next - last));
+            last = next + split.size();
+        }
+        if (last < size() || !(flags & SkipEmpty))
+            ret.append(mid(last));
         return ret;
     }
 
@@ -625,6 +649,10 @@ public:
         const int w = strftime(buf, sizeof(buf), format, &tm);
         return String(buf, w);
     }
+
+    String toHex() const { return toHex(*this); }
+    static String toHex(const String &hex) { return toHex(hex.constData(), hex.size()); }
+    static String toHex(const void *data, int len);
 
     static String number(int8_t num, int base = 10) { return String::number(static_cast<int64_t>(num), base); }
     static String number(uint8_t num, int base = 10) { return String::number(static_cast<int64_t>(num), base); }
@@ -744,12 +772,12 @@ private:
     std::string mString;
 };
 
-inline const bool operator==(const char *l, const String &r)
+inline bool operator==(const char *l, const String &r)
 {
     return r.operator==(l);
 }
 
-inline const bool operator!=(const char *l, const String &r)
+inline bool operator!=(const char *l, const String &r)
 {
     return r.operator!=(l);
 }

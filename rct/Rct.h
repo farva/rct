@@ -37,9 +37,9 @@ inline bool addTo(Container &container, const Value &value)
     container += value;
     return container.size() != oldSize;
 }
-bool readFile(const Path& path, String &data);
-bool readFile(FILE *f, String &data);
-bool writeFile(const Path& path, const String& data);
+bool readFile(const Path& path, String &data, mode_t *perm = 0 );
+bool readFile(FILE *f, String &data, mode_t *perm = 0);
+bool writeFile(const Path& path, const String& data, int perm = -1);
 void removeDirectory(const Path &path);
 String unescape(String command);
 void findExecutablePath(const char *argv0);
@@ -49,6 +49,28 @@ bool gettime(timeval* time);
 uint64_t monoMs();
 uint64_t currentTimeMs();
 String hostName();
+
+enum AnsiColor {
+    AnsiColor_Default,
+    AnsiColor_Black,
+    AnsiColor_Red,
+    AnsiColor_Green,
+    AnsiColor_Yellow,
+    AnsiColor_Blue,
+    AnsiColor_Magenta,
+    AnsiColor_Cyan,
+    AnsiColor_White,
+    AnsiColor_BrightDefault,
+    AnsiColor_BrightBlack,
+    AnsiColor_BrightRed,
+    AnsiColor_BrightGreen,
+    AnsiColor_BrightYellow,
+    AnsiColor_BrightBlue,
+    AnsiColor_BrightMagenta,
+    AnsiColor_BrightCyan,
+    AnsiColor_BrightWhite
+};
+String colorize(const String &string, AnsiColor color, int from = 0, int len = -1);
 
 namespace LinkedList
 {
@@ -79,7 +101,7 @@ void insert(Node *node, Node *&first, Node *&last, Node *after = 0)
 }
 
 template <typename Node>
-void remove(Node *node, Node *&first, Node *&last)
+Node *remove(Node *node, Node *&first, Node *&last)
 {
     assert(node);
     if (node == first) {
@@ -101,6 +123,7 @@ void remove(Node *node, Node *&first, Node *&last)
     }
 
     node->next = node->prev = 0; // ### ???
+    return node;
 }
 
 template <typename Node>

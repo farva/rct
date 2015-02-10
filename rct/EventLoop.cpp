@@ -99,7 +99,7 @@ static EventLoop::WeakPtr& localEventLoop()
     return *ptr;
 }
 
-static void signalHandler(int sig)
+static void signalHandler(int /*sig*/)
 {
     char b = 'q';
     int w;
@@ -210,6 +210,13 @@ void EventLoop::cleanup()
         delete events.front();
         events.pop();
     }
+
+    for (auto timer : timersById) {
+        delete timer;
+    }
+    timersById.clear();
+    timersByTime.clear();
+    nextTimerId = 0;
 
 #if defined(HAVE_EPOLL) || defined(HAVE_KQUEUE)
     if (pollFd != -1)
@@ -442,7 +449,9 @@ bool EventLoop::registerSocket(int fd, unsigned int mode, std::function<void(int
 #if defined(HAVE_EPOLL)
     epoll_event ev;
     memset(&ev, 0, sizeof(ev));
-    ev.events = EPOLLET|EPOLLRDHUP;
+    ev.events = EPOLLRDHUP;
+    if (!(mode & SocketLevelTriggered))
+        ev.events |= EPOLLET;
     if (mode & SocketRead)
         ev.events |= EPOLLIN;
     if (mode & SocketWrite)
@@ -500,7 +509,9 @@ bool EventLoop::updateSocket(int fd, unsigned int mode)
 #if defined(HAVE_EPOLL)
     epoll_event ev;
     memset(&ev, 0, sizeof(ev));
-    ev.events = EPOLLET|EPOLLRDHUP;
+    ev.events = EPOLLRDHUP;
+    if (!(mode & SocketLevelTriggered))
+        ev.events |= EPOLLET;
     if (mode & SocketRead)
         ev.events |= EPOLLIN;
     if (mode & SocketWrite)

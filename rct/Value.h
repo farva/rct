@@ -41,6 +41,16 @@ public:
     }
     inline Value(const Value &other) : mType(Type_Invalid) { copy(other); }
     inline Value(const Map<String, Value> &map) : mType(Type_Map) { new (mData.mapBuf) Map<String, Value>(map); }
+    template <typename T> inline Value(const List<T> &list)
+        : mType(Type_List)
+    {
+        new (mData.listBuf) List<Value>(list.size());
+        int i = 0;
+        List<Value> *l = listPtr();
+
+        for (const T &t : list)
+            (*l)[i++] = t;
+    }
     inline Value(const List<Value> &list) : mType(Type_List) { new (mData.listBuf) List<Value>(list); }
     Value(Value &&other);
     ~Value() { clear(); }
@@ -82,6 +92,8 @@ public:
     inline String toString() const;
     inline std::shared_ptr<Custom> toCustom() const;
     inline Map<String, Value> toMap() const;
+    template <typename T>
+    inline List<T> toList() const;
     inline List<Value> toList() const;
     Map<String, Value>::const_iterator begin() const;
     Map<String, Value>::const_iterator end() const;
@@ -94,6 +106,7 @@ public:
     template <typename T> T operator[](const String &key) const;
     const Value &operator[](int idx) const;
     Value &operator[](int idx);
+    void push_back(const Value &value);
     const Value &operator[](const String &key) const;
     Value &operator[](const String &key);
     inline Value value(int idx, const Value &defaultValue = Value()) const;
@@ -411,6 +424,19 @@ inline String Value::toString() const { return convert<String>(0); }
 inline std::shared_ptr<Value::Custom> Value::toCustom() const { return convert<std::shared_ptr<Custom> >(0); }
 inline Map<String, Value> Value::toMap() const { return convert<Map<String, Value> >(0); }
 inline List<Value> Value::toList() const { return convert<List<Value> >(0); }
+template <typename T>
+inline List<T> Value::toList() const
+{
+    List<T> ret;
+    if (type() == Type_List) {
+        ret.reserve(count());
+        for (const Value &val : *listPtr()) {
+            ret.append(val.convert<T>());
+        }
+    }
+    return ret;
+}
+
 inline Value Value::value(int idx, const Value &defaultValue) const
 {
     return mType == Type_List ? listPtr()->value(idx, defaultValue) : defaultValue;
@@ -505,6 +531,17 @@ inline Value &Value::operator[](int idx)
         assert(mType == Type_List);
     }
     return (*listPtr())[idx];
+}
+
+inline void Value::push_back(const Value &value)
+{
+    if (mType == Type_Invalid) {
+        new (mData.listBuf) List<Value>;
+        mType = Type_List;
+    } else {
+        assert(mType == Type_List);
+    }
+    listPtr()->push_back(value);
 }
 
 inline const Value &Value::operator[](const String &key) const

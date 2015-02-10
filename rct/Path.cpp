@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <utime.h>
 #include <dirent.h>
 #include <fts.h>
 #include <wordexp.h>
@@ -75,6 +76,22 @@ time_t Path::lastModified() const
         return 0;
     }
     return st.st_mtime;
+}
+
+time_t Path::lastAccess() const
+{
+    struct stat st;
+    if (stat(constData(), &st) == -1) {
+        warning("Stat failed for %s", constData());
+        return 0;
+    }
+    return st.st_atime;
+}
+
+bool Path::setLastModified(time_t lastModified) const
+{
+    const struct utimbuf buf = { lastAccess(), lastModified };
+    return !utime(constData(), &buf);
 }
 
 int64_t Path::fileSize() const
@@ -206,7 +223,11 @@ bool Path::resolve(ResolveMode mode, const Path &cwd, bool *changed)
 
 const char * Path::fileName(int *len) const
 {
-    const int idx = lastIndexOf('/') + 1;
+    const int length = size();
+    int idx = 0;
+    if (length > 1)
+        idx = lastIndexOf('/', length - 2) + 1;
+
     if (len)
         *len = size() - idx;
     return constData() + idx;
@@ -386,7 +407,7 @@ bool Path::rmdir(const Path& dir)
         }
     }
     fts_close(fdir);
-    return true;
+    return !::rmdir(dir.constData());
 }
 
 static void visitorWrapper(Path path, Path::VisitCallback callback, Set<Path> &seen, void *userData)
@@ -608,4 +629,17 @@ const char *Path::typeName(Type type)
         break;
     }
     return "";
+}
+
+String Path::name() const
+{
+    if (endsWith('/')) {
+        const int secondLastSlash = lastIndexOf('/', size() - 2);
+        if (secondLastSlash != -1) {
+            return mid(secondLastSlash + 1, size() - secondLastSlash - 2);
+        }
+        return String();
+    } else {
+        return fileName();
+    }
 }

@@ -15,8 +15,12 @@
 class Serializer
 {
 public:
-    Serializer(String &out)
+    Serializer(std::string &out)
         : mError(false), mOutData(0), mOutString(&out), mOutFile(0), mPos(0), mMax(INT_MAX)
+    {}
+
+    Serializer(String &out)
+        : mError(false), mOutData(0), mOutString(&out.ref()), mOutFile(0), mPos(0), mMax(INT_MAX)
     {}
 
     Serializer(FILE *f)
@@ -34,7 +38,10 @@ public:
     bool write(const char *data, int len)
     {
         assert(len > 0);
-        if (mOutData) {
+        if (mOutString) {
+            mOutString->append(data, len);
+            return true;
+        } else if (mOutData) {
             if (mPos + len < mMax) {
                 memcpy(mOutData + mPos, data, len);
                 mPos += len;
@@ -42,27 +49,24 @@ public:
                 mError = true;
             }
             return mError;
-        } else if (mOutString) {
-            mOutString->append(data, len);
-            return true;
         } else {
             assert(mOutFile);
             const size_t ret = fwrite(data, sizeof(char), len, mOutFile);
             return (ret == static_cast<size_t>(len));
         }
     }
-    const String *string() const { return mOutString; }
-    String *string() { return mOutString; }
+    const std::string *string() const { return mOutString; }
+    std::string *string() { return mOutString; }
     char *outData() const { return mOutData; }
     const FILE *file() const { return mOutFile; }
     FILE *file() { return mOutFile; }
 
     int pos() const
     {
-        if (mOutData) {
-            return mPos;
-        } else if (mOutString) {
+        if (mOutString) {
             return mOutString->size();
+        } else if (mOutData) {
+            return mPos;
         } else {
             assert(mOutFile);
             return static_cast<int>(ftell(mOutFile));
@@ -72,7 +76,7 @@ public:
 private:
     bool mError;
     char *mOutData;
-    String *mOutString;
+    std::string *mOutString;
     FILE *mOutFile;
     int mPos, mMax;
 };
@@ -120,7 +124,8 @@ public:
         if (len) {
             if (mData) {
                 if (mPos + len > mLength) {
-                    error() << "About to die" << mPos << len << mLength;
+                    error() << "About to die" << mPos << len << mLength << '\n' << Rct::backtrace();
+
                 }
                 assert(mPos + len <= mLength);
                 memcpy(target, mData + mPos, len);
@@ -160,15 +165,16 @@ Deserializer &operator>>(Deserializer &s, T &t)
     return s;
 }
 
-template <typename T> inline int fixedSize(const T &)
+template <typename T>
+struct FixedSize
 {
-    return 0;
-}
+    static constexpr size_t value = 0;
+};
 #define DECLARE_NATIVE_TYPE(type)                                   \
-    template <> inline int fixedSize(const type &)                  \
+    template <> struct FixedSize<type>                              \
     {                                                               \
-        return sizeof(type);                                        \
-    }                                                               \
+        static constexpr size_t value = sizeof(type);               \
+    };                                                              \
     template <> inline Serializer &operator<<(Serializer &s,        \
                                               const type &t)        \
     {                                                               \
@@ -200,18 +206,19 @@ DECLARE_NATIVE_TYPE(unsigned long);
 #endif
 #ifndef __x86_64__
 DECLARE_NATIVE_TYPE(time_t);
+#elif defined(OS_Linux)
+DECLARE_NATIVE_TYPE(unsigned long long);
 #endif
 
 template <>
-inline Serializer &operator<<(Serializer &s, const String &byteArray)
+inline Serializer &operator<<(Serializer &s, const String &string)
 {
-    const uint32_t size = byteArray.size();
+    const uint32_t size = string.size();
     s << size;
-    if (byteArray.size())
-        s.write(byteArray.constData(), byteArray.size()); // do I need to write out null terminator?
+    if (string.size())
+        s.write(string.constData(), string.size());
     return s;
 }
-
 
 template <>
 inline Serializer &operator<<(Serializer &s, const Path &path)
@@ -230,7 +237,7 @@ Serializer &operator<<(Serializer &s, const List<T> &list)
     const uint32_t size = list.size();
     s << size;
     if (list.size()) {
-        const int fixed = fixedSize<T>(T());
+        const int fixed = FixedSize<T>::value;
         if (fixed) {
             s.write(reinterpret_cast<const char*>(list.data()), fixed * size);
         } else {
@@ -351,7 +358,7 @@ Deserializer &operator>>(Deserializer &s, List<T> &list)
     s >> size;
     list.resize(size);
     if (size) {
-        const int fixed = fixedSize<T>(T());
+        const int fixed = FixedSize<T>::value;
         if (fixed) {
             s.read(reinterpret_cast<char*>(list.data()), fixed * size);
         } else {
@@ -380,13 +387,13 @@ Deserializer &operator>>(Deserializer &s, Set<T> &set)
 }
 
 template <>
-inline Deserializer &operator>>(Deserializer &s, String &byteArray)
+inline Deserializer &operator>>(Deserializer &s, String &string)
 {
     uint32_t size;
     s >> size;
-    byteArray.resize(size);
+    string.resize(size);
     if (size) {
-        s.read(byteArray.data(), size);
+        s.read(string.data(), size);
     }
     return s;
 }

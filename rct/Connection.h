@@ -15,12 +15,15 @@
 class ConnectionPrivate;
 class SocketClient;
 class Event;
-class Connection
+class Connection : public std::enable_shared_from_this<Connection>
 {
 public:
-    Connection();
-    Connection(const SocketClient::SharedPtr &client);
-    ~Connection();
+    Connection(int version = 0);
+    Connection(const SocketClient::SharedPtr &client, int version = 0);
+    virtual ~Connection();
+
+    void setVersion(int version) { mVersion = version; }
+    int version() const { return mVersion; }
 
     void setSilent(bool on) { mSilent = on; }
     bool isSilent() const { return mSilent; }
@@ -30,9 +33,7 @@ public:
 
     int pendingWrite() const;
 
-    bool send(Message&& message);
-    bool send(const Message& message);
-
+    virtual bool send(const Message &message);
     template <int StaticBufSize>
     bool write(const char *format, ...)
     {
@@ -83,9 +84,8 @@ public:
     Signal<std::function<void(Connection*)> > &disconnected() { return mDisconnected; }
     Signal<std::function<void(Connection*)> > &error() { return mError; }
     Signal<std::function<void(Connection*, int)> > &finished() { return mFinished; }
-    Signal<std::function<void(Message*, Connection*)> > &newMessage() { return mNewMessage; }
+    Signal<std::function<void(std::shared_ptr<Message>, Connection*)> > &newMessage() { return mNewMessage; }
     SocketClient::SharedPtr client() const { return mSocketClient; }
-    bool send(uint8_t messageId, const String& message);
 private:
 
     void onClientConnected(const SocketClient::SharedPtr&) { mConnected(this); }
@@ -94,38 +94,21 @@ private:
     void onDataWritten(const SocketClient::SharedPtr&, int);
     void onSocketError(const SocketClient::SharedPtr&, SocketClient::Error error)
     {
-        ::warning() << "Socket error" << error;
+        ::warning() << "Socket error" << error << errno << strerror(errno);
         mDisconnected(this);
     }
-    void initConnection();
+    void checkData();
 
     SocketClient::SharedPtr mSocketClient;
     LinkedList<Buffer> mBuffers;
-    int mPendingRead, mPendingWrite;
-    int mTimeoutTimer, mFinishStatus;
+    int mPendingRead, mPendingWrite, mTimeoutTimer, mFinishStatus, mVersion;
 
     bool mSilent, mIsConnected, mWarned;
 
-    Signal<std::function<void(Message*, Connection*)> > mNewMessage;
+    Signal<std::function<void(std::shared_ptr<Message>, Connection*)> > mNewMessage;
     Signal<std::function<void(Connection*)> > mConnected, mDisconnected, mError, mSendFinished;
     Signal<std::function<void(Connection*, int)> > mFinished;
 
 };
-
-inline bool Connection::send(Message&& message)
-{
-    String encoded;
-    Serializer serializer(encoded);
-    message.encode(serializer);
-    return send(message.messageId(), encoded);
-}
-
-inline bool Connection::send(const Message& message)
-{
-    String encoded;
-    Serializer serializer(encoded);
-    message.encode(serializer);
-    return send(message.messageId(), encoded);
-}
 
 #endif // CONNECTION_H
